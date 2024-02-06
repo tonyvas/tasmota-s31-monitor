@@ -2,7 +2,7 @@
 plugs.db
 
 # Ignore config
-# config.json
+config.json
 
 # Logs
 logs
