@@ -5,12 +5,14 @@ const CONFIG_FILE = `${__dirname}/config.json`
 
 function getConfig(){
     return new Promise((resolve, reject) => {
+        // Read config file
         fs.readFile(CONFIG_FILE, 'utf-8', (err, data) => {
             if (err){
                 reject(new Error(`Failed to read config file: ${err.message}`))
             }
             else{
                 try {
+                    // Resolve as JSON data
                     resolve(JSON.parse(data));
                 } catch (error) {
                     reject(new Error(`Failed to parse config json: ${error.message}`))
@@ -22,14 +24,17 @@ function getConfig(){
 
 function poll(url){
     return new Promise((resolve, reject) => {
+        // Send HTTP request
         const req = http.get(url, (res) => {
             const chunks = [];
             
+            // Wait for response body data
             res.on('data', (chunk) => {
                 chunks.push(chunk)
             })
 
             res.on('end', () => {
+                // Resolve response results
                 resolve({
                     status: res.statusCode,
                     message: Buffer.concat(chunks).toString()
@@ -77,20 +82,27 @@ function parseHtml(html){
 }
 
 getConfig().then(config => {
+    // Split out config values
     const pollIntervalMS = config['poll_interval_ms'];
     const plugs = config['plugs']
 
+    // Setup each plug
     for (let [name, address] of Object.entries(plugs)){
+        // Min HTML for plug (used by HomeAssistant TasmoAdmin)
         const url = `http://${address}/?m=1`
 
         setInterval(() => {
+            // Get starting timestamp
             let time = new Date().getTime();
 
+            // Get HTTP data from plug
             poll(url).then(res => {
                 const {status, message} = res;
 
                 if (status == 200){
+                    // If good, parse the HTML response
                     parseHtml(message).then(result => {
+                        // For now simply print results
                         console.log(time, result);
                     }).catch(err => {
                         console.error(`Error: Failed to parse poll results for plug ${name}`, err);
