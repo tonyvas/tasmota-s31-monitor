@@ -90,6 +90,24 @@ class DatabaseManager{
         })
     }
 
+    // Promise wrapper for sqlite3.Database.all
+    // Executes SQL using a template and array of values
+    // Takes the sqlite database instance, a SQL template and array of values
+    // Resolves with the result if successful
+    // Rejects if not
+    _execSql(db, template, values){
+        return new Promise((resolve, reject) => {
+            db.all(template, values, (err, res) => {
+                if (err){
+                    reject(err);
+                }
+                else{
+                    resolve(res);
+                }
+            })
+        })
+    }
+
     // Run a SQL query
     // Takes an SQL template, and an array of values
     // Resolves results of query if successful
@@ -99,22 +117,25 @@ class DatabaseManager{
             let database = null;
 
             // Connect to the DB
-            this._open().then(db => {
+            this._open()
+            .then(db => {
                 database = db;
 
                 // Execute SQL using template and params
-                database.all(template, values, (err, results) => {
-                    if (err){
-                        reject(new Error(`Failed to execute sql: ${err.message}`));
-                    }
-                    else{
-                        // Resolve whatever came from the query
-                        resolve(results);
-                    }
+                return this._execSql(database, template, values).catch(err => {
+                    // Failed to exec
+                    return Promise.reject(new Error(`Failed to execute sql: ${err.message}`));
                 })
-            }).catch(err => {
+            })
+            .then(res => {
+                // Resolve result
+                resolve(res);
+            })
+            .catch(err => {
+                // Failed to query
                 reject(new Error(`Failed to query database: ${err.message}`));
-            }).finally(() => {
+            })
+            .finally(() => {
                 if (database){
                     // Close handle when done
                     database.close();
@@ -135,22 +156,26 @@ class DatabaseManager{
             const INSERT_TEMPLATE = 'INSERT INTO plug (plug_name) VALUES (?) RETURNING plug_id;';
 
             // Try selecting plug by name
-            this._query(SELECT_TEMPLATE, [name]).then(selected => {
+            this._query(SELECT_TEMPLATE, [name])
+            .then(selected => {
                 if (selected.length > 0){
                     // If got a match, resolve the plug ID
                     resolve(selected[0]['plug_id']);
                 }
                 else{
                     // If no match, insert new plug
-                    this._query(INSERT_TEMPLATE, [name]).then(inserted => {
+                    this._query(INSERT_TEMPLATE, [name])
+                    .then(inserted => {
                         // If successful, resolve ID of new plug
                         resolve(inserted[0]['plug_id']);
-                    }).catch(err => {
+                    })
+                    .catch(err => {
                         reject(new Error(`Failed to insert plug: ${err.message}`));
                     })
                 }
-            }).catch(err => {
-                reject(new Error(`Failed to select plug ID: ${err.message}`));
+            })
+            .catch(err => {
+                reject(new Error(`Failed to select plug: ${err.message}`));
             })
         })
     }
@@ -214,10 +239,12 @@ class DatabaseManager{
             let {template, values} = this._generateInsertResultQuery(plug_id, timestamp, result);
 
             // Run the insert query
-            this._query(template, values).then(inserted => {
+            this._query(template, values)
+            .then(inserted => {
                 // Resolve ID if successful
                 resolve(inserted[0]['result_id'])
-            }).catch(err => {
+            })
+            .catch(err => {
                 reject(new Error(`Failed to insert result: ${err.message}`));
             })
         })
@@ -231,16 +258,24 @@ class DatabaseManager{
     _addResult(plugName, result, timestamp){
         return new Promise((resolve, reject) => {
             // Get the Plug ID
-            this._getOrInsertPlug(plugName).then(plug_id => {
+            this._getOrInsertPlug(plugName)
+            .catch(err => {
+                return Promise.reject(new Error(`Failed to get plug ID: ${err.message}`));
+            })
+            .then(plug_id => {
                 // Insert into result table
-                this._insertResult(plug_id, timestamp, result).then(result_id => {
+                return this._insertResult(plug_id, timestamp, result)
+                .then(result_id => {
                     // Resolve with IDs when done
                     resolve({plug_id, result_id});
-                }).catch(err => {
-                    reject(new Error(`Failed to insert plug result: ${err.message}`));
                 })
-            }).catch(err => {
-                reject(new Error(`Failed to get plug ID: ${err.message}`));
+                .catch(err => {
+                    // Failed to insert
+                    return Promise.reject(new Error(`Failed to insert result: ${err.message}`));
+                })
+            })
+            .catch(err => {
+                reject(new Error(`Failed to add result: ${err.message}`));
             })
         })
     }
@@ -266,7 +301,7 @@ class DatabaseManager{
             // What to do when request got processed
             function onProcessed(err, data){
                 if (err){
-                    reject(new Error(`Failed to add result for plug ${plugName}: ${err.message}`));
+                    reject(new Error(`Failed to add result: ${err.message}`));
                 }
                 else{
                     resolve(data);
@@ -274,8 +309,10 @@ class DatabaseManager{
             }
 
             // Queue request
-            this._addToQueue(what, onProcessed).catch(err => {
-                reject(new Error(`Failed to add ${plugName} to queue: ${err.message}`));
+            this._addToQueue(what, onProcessed)
+            .catch(err => {
+                // Failed to queue
+                reject(new Error(`Failed to add to queue: ${err.message}`));
             })
         })
     }
