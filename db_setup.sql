@@ -8,12 +8,11 @@ CREATE TABLE IF NOT EXISTS plug(
 );
 
 CREATE TABLE IF NOT EXISTS result(
-    -- Fields for primary key
-    result_id       INTEGER NOT NULL,
+    result_id       INTEGER PRIMARY KEY AUTOINCREMENT,
     plug_id         INTEGER NOT NULL,
 
-    -- Timestamp for when poll was started
-    utc_dt          TIMESTAMP NOT NULL,
+    -- Timestamp in MS for when poll was started
+    timestamp_ms    TIMESTAMP NOT NULL,
 
     -- Result values from poll
     voltage         REAL NOT NULL,
@@ -23,9 +22,6 @@ CREATE TABLE IF NOT EXISTS result(
     reactive_power  REAL NOT NULL,
     power_factor    REAL NOT NULL,
 
-    -- Primary key
-    PRIMARY KEY (result_id, plug_id),
-
     -- Reference plug
     FOREIGN KEY (plug_id) REFERENCES plug (plug_id)
 );
@@ -33,7 +29,7 @@ CREATE TABLE IF NOT EXISTS result(
 CREATE VIEW IF NOT EXISTS v_results AS
     SELECT
         p.plug_name 'Name',
-        r.utc_dt 'UTC Time',
+        r.timestamp_ms 'Timestamp',
         r.voltage 'Voltage',
         r.current 'Current',
         r.active_power 'Active Power',
@@ -45,4 +41,4 @@ CREATE VIEW IF NOT EXISTS v_results AS
         plug p
     WHERE
         r.plug_id = p.plug_id
-    ORDER BY utc_dt;
+    ORDER BY r.timestamp_ms;

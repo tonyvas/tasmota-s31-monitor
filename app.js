@@ -1,7 +1,10 @@
 const fs = require('fs');
 const http = require('http');
 
+const DatabaseManager = require('./database_manager');
+
 const CONFIG_FILE = `${__dirname}/config.json`
+const DATABASE_FILEPATH = `${__dirname}/plugs.db`;
 
 function getConfig(){
     return new Promise((resolve, reject) => {
@@ -46,6 +49,10 @@ function poll(url){
             })
         })
 
+        req.on('timeout', () => {
+            reject(new Error(`Failed to poll, request timed out`))
+        })
+
         req.on('error', (err) => {
             reject(new Error(`Failed to send http request: ${err.message}`))
         })
@@ -81,6 +88,8 @@ function parseHtml(html){
     })
 }
 
+const databaseManager = new DatabaseManager(DATABASE_FILEPATH);
+
 getConfig().then(config => {
     // Split out config values
     const pollIntervalMS = config['poll_interval_ms'];
@@ -102,8 +111,11 @@ getConfig().then(config => {
                 if (status == 200){
                     // If good, parse the HTML response
                     parseHtml(message).then(result => {
-                        // For now simply print results
-                        console.log(time, result);
+                        databaseManager.addResult(name, result, time).then((IDs) => {
+                            console.log('Inserted!', IDs);
+                        }).catch(err => {
+                            console.error(`Error: Failed to save result to database for plug ${name}`, err);
+                        })
                     }).catch(err => {
                         console.error(`Error: Failed to parse poll results for plug ${name}`, err);
                     })
