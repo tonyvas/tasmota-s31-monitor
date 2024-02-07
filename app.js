@@ -13,20 +13,25 @@ const DATABASE_FILEPATH = `${__dirname}/plugs.db`;
 // Rejects if failed
 function getConfig(){
     return new Promise((resolve, reject) => {
-        // Read config file
-        fs.readFile(CONFIG_FILE, 'utf-8', (err, data) => {
-            if (err){
-                reject(new Error(`Failed to read config file: ${err.message}`))
-            }
-            else{
-                try {
-                    // Resolve as JSON data
-                    resolve(JSON.parse(data));
-                } catch (error) {
-                    reject(new Error(`Failed to parse config json: ${error.message}`))
+        if (fs.existsSync(CONFIG_FILE)){
+            // Read config file
+            fs.readFile(CONFIG_FILE, 'utf-8', (err, data) => {
+                if (err){
+                    reject(new Error(`Failed to read config file: ${err.message}`))
                 }
-            }
-        })
+                else{
+                    try {
+                        // Resolve as JSON data
+                        resolve(JSON.parse(data));
+                    } catch (error) {
+                        reject(new Error(`Failed to parse config json: ${error.message}`))
+                    }
+                }
+            })
+        }
+        else{
+            reject(new Error(`Config file does not exist! << Run "npm run setup">>`))
+        }
     })
 }
 
@@ -59,7 +64,7 @@ function poll(url){
         })
 
         req.on('timeout', () => {
-            reject(new Error(`Failed to poll, request timed out`))
+            reject(new Error(`Request timed out`))
         })
 
         req.on('error', (err) => {
@@ -69,12 +74,10 @@ function poll(url){
 }
 
 // Parse the HTTP response HTML text from plug
-// Does not have to be async, but it is for consistency
+// Does not need to be async, but it is for consistency
 // Takes the HTML string
 // Resolves a result object containing the values from the plug
-// Rejects if that failed
 function parseHtml(html){
-    // Does not have to be async, but using it for consistency
     return new Promise((resolve, reject) => {
         let results = {};
 
@@ -98,51 +101,104 @@ function parseHtml(html){
             results[key] = Number(value);
         }
 
-        resolve(results)
+        resolve(results);
     })
 }
 
+// Start an interval loop to monitor plugs
+// Takes a plug config, and an instance of the database manager
+// Resolves if successful
+// Rejects if not
+function setupMonitoring(config, db){
+    return new Promise((resolve, reject) => {
+        // Split out config values
+        const pollIntervalMS = config['poll_interval_ms'];
+        const plugs = config['plugs']
+
+        // Setup each plug
+        for (let [name, address] of Object.entries(plugs)){
+            // Min HTML for plug (used by HomeAssistant TasmoAdmin)
+            const url = `http://${address}/?m=1`
+
+            setInterval(() => {
+                // Get starting timestamp
+                let time = new Date().getTime();
+
+                // Get HTTP data from plug
+                poll(url)
+                    .then(res => {
+                        // Get response data
+                        const {status, message} = res;
+
+                        if (status == 200){
+                            // If good, parse the HTML response
+                            return parseHtml(message).catch(err => {
+                                // Failed to parse response
+                                return Promise.reject(new Error(`Failed to parse poll results for plug ${name}: ${err.message}`))
+                            })
+                        }
+                        else{
+                            return Promise.reject(new Error(`Got non-200 status for plug ${name}: ${message}`))
+                        }
+                    })
+                    .then(result => {
+                        // Save result
+                        return db.addResult(name, result, time).catch(err => {
+                            // Failed to save
+                            return Promise.reject(new Error(`Failed to save result to database for plug ${name}: ${err.message}`))
+                        })
+                    })
+                    .then((IDs) => {
+                        console.log('Inserted!', IDs);
+                    })
+                    .catch(err => {
+                        // Failed to poll
+                        return Promise.reject(new Error(`Failed to poll plug ${name}: ${err.message}`))
+                    })
+                    .catch(err => {
+                        // Print error message
+                        console.error(`${new Date().toLocaleString()} - Error: Failed to monitor plug ${name}: ${err.message}`);
+                    })
+            }, pollIntervalMS);
+        }
+
+        // Resolve when done
+        resolve()
+    })
+}
+
+// Main starting function
+// Reads config and starts monitoring
+// Takes an instance of the database manager
+// Resolves if successful
+// Rejects if not
+function start(db){
+    return new Promise((resolve, reject) => {
+        // Read the config
+        getConfig()
+        .then(config => {
+            // Setup monitoring loop
+            return setupMonitoring(config, db).catch(err => {
+                // Failed to setup
+                return Promise.reject(new Error(`Failed to start monitoring: ${error.message}`));
+            })
+        })
+        .then(() => {
+            // Monitoring started
+            resolve();
+        })
+        .catch(err => {
+            reject(new Error(`Failed to get config: ${err.message}`))
+        })
+    })
+}
+
+// Start a database manager
 const databaseManager = new DatabaseManager(DATABASE_FILEPATH);
 
-// Read the config
-getConfig().then(config => {
-    // Split out config values
-    const pollIntervalMS = config['poll_interval_ms'];
-    const plugs = config['plugs']
-
-    // Setup each plug
-    for (let [name, address] of Object.entries(plugs)){
-        // Min HTML for plug (used by HomeAssistant TasmoAdmin)
-        const url = `http://${address}/?m=1`
-
-        setInterval(() => {
-            // Get starting timestamp
-            let time = new Date().getTime();
-
-            // Get HTTP data from plug
-            poll(url).then(res => {
-                const {status, message} = res;
-
-                if (status == 200){
-                    // If good, parse the HTML response
-                    parseHtml(message).then(result => {
-                        databaseManager.addResult(name, result, time).then((IDs) => {
-                            // console.log('Inserted!', IDs);
-                        }).catch(err => {
-                            console.error(new Date().toLocaleString(), `Error: Failed to save result to database for plug ${name}`, err);
-                        })
-                    }).catch(err => {
-                        console.error(new Date().toLocaleString(), `Error: Failed to parse poll results for plug ${name}`, err);
-                    })
-                }
-                else{
-                    console.error(new Date().toLocaleString(), `Error: Got non-200 status for plug ${name}`, message);
-                }
-            }).catch(err => {
-                console.error(new Date().toLocaleString(), `Error: Failed to poll plug ${name}`, err);
-            })
-        }, pollIntervalMS);
-    }
+// Start monitoring
+start(databaseManager).then(() => {
+    console.log('Monitoring started!');
 }).catch(err => {
-    console.error(`Error: Failed to get config`, err);
+    console.error(`Error: Failed to start monitoring: ${err.message}`);
 })
