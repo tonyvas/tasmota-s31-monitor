@@ -28,14 +28,8 @@ CREATE TABLE IF NOT EXISTS result(
 
 CREATE VIEW IF NOT EXISTS v_results AS
     SELECT
-        p.plug_name 'Name',
-        r.timestamp_ms 'Timestamp',
-        r.voltage 'Voltage',
-        r.current 'Current',
-        r.active_power 'Active Power',
-        r.apparent_power 'Apparent Power',
-        r.reactive_power 'Reactive Power',
-        r.power_factor 'Power Factor'
+        p.plug_name,
+        r.*
     FROM
         result r,
         plug p

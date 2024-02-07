@@ -1,11 +1,16 @@
 const fs = require('fs');
 const http = require('http');
 
+// Database Manager helper
 const DatabaseManager = require('./database_manager');
 
 const CONFIG_FILE = `${__dirname}/config.json`
 const DATABASE_FILEPATH = `${__dirname}/plugs.db`;
 
+// Get the JSON config for plugs
+// Takes nothing
+// Resolves with an object containing the config
+// Rejects if failed
 function getConfig(){
     return new Promise((resolve, reject) => {
         // Read config file
@@ -25,6 +30,10 @@ function getConfig(){
     })
 }
 
+// Send an HTTP request to a URL
+// Takes the URL to request from
+// Resolves with the response status and body if successful
+// Rejects if not
 function poll(url){
     return new Promise((resolve, reject) => {
         // Send HTTP request
@@ -59,6 +68,11 @@ function poll(url){
     })
 }
 
+// Parse the HTTP response HTML text from plug
+// Does not have to be async, but it is for consistency
+// Takes the HTML string
+// Resolves a result object containing the values from the plug
+// Rejects if that failed
 function parseHtml(html){
     // Does not have to be async, but using it for consistency
     return new Promise((resolve, reject) => {
@@ -90,6 +104,7 @@ function parseHtml(html){
 
 const databaseManager = new DatabaseManager(DATABASE_FILEPATH);
 
+// Read the config
 getConfig().then(config => {
     // Split out config values
     const pollIntervalMS = config['poll_interval_ms'];
@@ -112,19 +127,19 @@ getConfig().then(config => {
                     // If good, parse the HTML response
                     parseHtml(message).then(result => {
                         databaseManager.addResult(name, result, time).then((IDs) => {
-                            console.log('Inserted!', IDs);
+                            // console.log('Inserted!', IDs);
                         }).catch(err => {
-                            console.error(`Error: Failed to save result to database for plug ${name}`, err);
+                            console.error(new Date().toLocaleString(), `Error: Failed to save result to database for plug ${name}`, err);
                         })
                     }).catch(err => {
-                        console.error(`Error: Failed to parse poll results for plug ${name}`, err);
+                        console.error(new Date().toLocaleString(), `Error: Failed to parse poll results for plug ${name}`, err);
                     })
                 }
                 else{
-                    console.error(`Error: Got non-200 status for plug ${name}`, message);
+                    console.error(new Date().toLocaleString(), `Error: Got non-200 status for plug ${name}`, message);
                 }
             }).catch(err => {
-                console.error(`Error: Failed to poll plug ${name}`, err);
+                console.error(new Date().toLocaleString(), `Error: Failed to poll plug ${name}`, err);
             })
         }, pollIntervalMS);
     }
