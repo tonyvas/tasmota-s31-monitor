@@ -34,7 +34,7 @@ plugMonitor.start()
     })
 })
 .then(() => {
-    console.log(`Web API started at http://127.0.0.1:${API_PORT}/api !`);
+    console.log(`Web API started at http://127.0.0.1:${API_PORT}`);
 })
 .catch(err => {
     console.error(`Error: Failed to start: ${err.message}`);

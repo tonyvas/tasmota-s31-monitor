@@ -1,6 +1,8 @@
 const http = require('http')
 const express = require('express');
 
+const PUBLIC_DIRPATH = `${__dirname}/public`;
+
 class WebAPI{
     constructor(database, port){
         this._database = database;
@@ -200,6 +202,9 @@ class WebAPI{
                         res.end('Failed to log!')
                     })
                 })
+
+                // Attach static files thing
+                this._app.use(express.static(PUBLIC_DIRPATH));
 
                 // Attach API route
                 this._app.use('/api/', this._router);
