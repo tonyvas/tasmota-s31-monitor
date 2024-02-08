@@ -8,9 +8,10 @@ class DatabaseManager{
         this._databasePath = databasePath;
 
         // Array of queued jobs
-        // Public methods queue up an object containining 2 callbacks
-        //      what:           The main callback, does whatever db action needs done
-        //      onProcessed:    Gets called when the what is done, gets an error (null if no error), and result from the what
+        // Public methods queue up an object containining 3 callbacks
+        //      what        The main callback, does whatever db action needs done
+        //      cResolve    Gets called if what completed successfully
+        //      cReject     Gets called if what completed unsuccessfully
         // Used to prevent actions from competing and potentially both writing to db at the same time
         // Forces them to be processed one at a time
         this._queue = [];
@@ -30,16 +31,10 @@ class DatabaseManager{
                 let request = this._queue.splice(0, 1)[0];
                 
                 // Get callbacks from request
-                let {what, onProcessed} = request;
+                let {what, cResolve, cReject} = request;
 
                 // Process queued requests
-                await what().then(data => {
-                    // No error, data
-                    onProcessed(null, data);
-                }).catch(err => {
-                    // Error
-                    onProcessed(err);
-                })
+                await what().then(cResolve).catch(cReject);
             }
 
             // Finished processing
@@ -48,10 +43,10 @@ class DatabaseManager{
     }
 
     // Add a queue request to the queue
-    // Takes a main action callback, and a callback for when action is complete
+    // Takes a main action callback, and a the resolve and reject callbacks for when what is complete
     // Resolves when request was added
     // Rejects if failed to queue request
-    _addToQueue(what, onProcessed){
+    _addToQueue(what, cResolve, cReject){
         return new Promise((resolve, reject) => {
             if (this._queue.length >= QUEUE_MAX_SIZE){
                 // Make sure queue doesn't get too full
@@ -60,9 +55,7 @@ class DatabaseManager{
             else{
                 this._queue.push({
                     // Bind callbacks to this instance
-                    what: what.bind(this),
-                    onProcessed: onProcessed.bind(this),
-                });
+                    what: what.bind(this), cResolve, cReject });
         
                 // Resume processing
                 this._processQueue();
@@ -280,45 +273,9 @@ class DatabaseManager{
         })
     }
 
-    // Public facing method to add a result to the database
-    // Queues a request to insert the result, and waits until it gets processed
-    // Takes the plug name, result object and optionally a timestamp
-    // Resolves with the plug and result IDs if successful
-    // Rejects if not
-    addResult(plugName, result, timestamp = null){
-        return new Promise((resolve, reject) => {
-            // What to do when it is time to process request
-            function what(){
-                if (!timestamp){
-                    // Use current time if no timestamp
-                    timestamp = Date.now();
-                }
-
-                // Add the result
-                return this._addResult(plugName, result, timestamp);
-            }
-
-            // What to do when request got processed
-            function onProcessed(err, data){
-                if (err){
-                    // Pass error along
-                    reject(err);
-                }
-                else{
-                    // Pass result along
-                    resolve(data);
-                }
-            }
-
-            // Queue request
-            this._addToQueue(what, onProcessed)
-            .catch(err => {
-                // Failed to queue
-                reject(new Error(`Failed to add to queue: ${err.message}`));
-            })
-        })
-    }
-
+    // Get all plugs
+    // Takes nothing
+    // Resolves array of plug records
     _getPlugs(){
         return new Promise((resolve, reject) => {
             // Template to select everything for a plug by id between 2 timestamps
@@ -337,35 +294,9 @@ class DatabaseManager{
         })
     }
 
-    getPlugs(){
-        return new Promise((resolve, reject) => {
-            // What to do when it is time to process request
-            function what(){
-                // Get plugs
-                return this._getPlugs();
-            }
-
-            // What to do when request got processed
-            function onProcessed(err, data){
-                if (err){
-                    // Pass error along
-                    reject(err);
-                }
-                else{
-                    // Pass result along
-                    resolve(data);
-                }
-            }
-
-            // Queue request
-            this._addToQueue(what, onProcessed)
-            .catch(err => {
-                // Failed to queue
-                reject(new Error(`Failed to add to queue: ${err.message}`));
-            })
-        })
-    }
-
+    // Get results for a plug
+    // Takes the plug ID, a start and end timestamp
+    // Resolves array of results records
     _getPlugResults(plug_id, start, end){
         return new Promise((resolve, reject) => {
             // Template to select everything for a plug by id between 2 timestamps
@@ -384,6 +315,55 @@ class DatabaseManager{
         })
     }
 
+    // Public facing method to add a result to the database
+    // Queues a request to insert the result, and waits until it gets processed
+    // Takes the plug name, result object and optionally a timestamp
+    // Resolves with the plug and result IDs if successful
+    // Rejects if not
+    addResult(plugName, result, timestamp = null){
+        return new Promise((resolve, reject) => {
+            // What to do when it is time to process request
+            function what(){
+                if (!timestamp){
+                    // Use current time if no timestamp
+                    timestamp = Date.now();
+                }
+
+                // Add the result
+                return this._addResult(plugName, result, timestamp);
+            }
+
+            // Queue request
+            this._addToQueue(what, resolve, reject)
+            .catch(err => {
+                // Failed to queue
+                reject(new Error(`Failed to add to queue: ${err.message}`));
+            })
+        })
+    }
+
+    // Public facing method to get plugs
+    // Takes nothing
+    // Resolves array of plugs
+    getPlugs(){
+        return new Promise((resolve, reject) => {
+            // What to do when it is time to process request
+            function what(){
+                // Get plugs
+                return this._getPlugs();
+            }
+
+            // Queue request
+            this._addToQueue(what, resolve, reject)
+            .catch(err => {
+                // Failed to queue
+                reject(new Error(`Failed to add to queue: ${err.message}`));
+            })
+        })
+    }
+
+    // Public facing method to get results for a plug
+    // Takes a plug ID, and optionally a start and end timestamp
     getPlugResults(plug_id, start = null, end = null){
         return new Promise((resolve, reject) => {
             // What to do when it is time to process request
@@ -404,20 +384,8 @@ class DatabaseManager{
                 return this._getPlugResults(plug_id, start, end);
             }
 
-            // What to do when request got processed
-            function onProcessed(err, data){
-                if (err){
-                    // Pass error along
-                    reject(err);
-                }
-                else{
-                    // Pass result along
-                    resolve(data);
-                }
-            }
-
             // Queue request
-            this._addToQueue(what, onProcessed)
+            this._addToQueue(what, resolve, reject)
             .catch(err => {
                 // Failed to queue
                 reject(new Error(`Failed to add to queue: ${err.message}`));
