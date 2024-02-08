@@ -318,6 +318,112 @@ class DatabaseManager{
             })
         })
     }
+
+    _getPlugs(){
+        return new Promise((resolve, reject) => {
+            // Template to select everything for a plug by id between 2 timestamps
+            const TEMPLATE = 'SELECT * FROM plug;'
+
+            // Run query
+            this._query(TEMPLATE)
+            .then((res) => {
+                // Resolve results
+                resolve(res)
+            })
+            .catch(err => {
+                // Failed to select
+                reject(new Error(`Failed to select plugs: ${err.message}`))
+            })
+        })
+    }
+
+    getPlugs(){
+        return new Promise((resolve, reject) => {
+            // What to do when it is time to process request
+            function what(){
+                // Get plugs
+                return this._getPlugs();
+            }
+
+            // What to do when request got processed
+            function onProcessed(err, data){
+                if (err){
+                    // Pass error along
+                    reject(err);
+                }
+                else{
+                    // Pass result along
+                    resolve(data);
+                }
+            }
+
+            // Queue request
+            this._addToQueue(what, onProcessed)
+            .catch(err => {
+                // Failed to queue
+                reject(new Error(`Failed to add to queue: ${err.message}`));
+            })
+        })
+    }
+
+    _getPlugResults(plug_id, start, end){
+        return new Promise((resolve, reject) => {
+            // Template to select everything for a plug by id between 2 timestamps
+            const TEMPLATE = 'SELECT * FROM result WHERE plug_id = ? AND timestamp_ms BETWEEN ? AND ?;'
+
+            // Run query
+            this._query(TEMPLATE, [plug_id, start, end])
+            .then((res) => {
+                // Resolve results
+                resolve(res)
+            })
+            .catch(err => {
+                // Failed to select
+                reject(new Error(`Failed to select results: ${err.message}`))
+            })
+        })
+    }
+
+    getPlugResults(plug_id, start = null, end = null){
+        return new Promise((resolve, reject) => {
+            // What to do when it is time to process request
+            function what(){
+                // Max signed 64-bit number
+                const MAX_TIMESTAMP = 2**63 - 1;
+                const MIN_TIMESTAMP = 0;
+
+                if (!start){
+                    start = MIN_TIMESTAMP;
+                }
+
+                if (!end){
+                    end = MAX_TIMESTAMP;
+                }
+
+                // Get the results
+                return this._getPlugResults(plug_id, start, end);
+            }
+
+            // What to do when request got processed
+            function onProcessed(err, data){
+                if (err){
+                    // Pass error along
+                    reject(err);
+                }
+                else{
+                    // Pass result along
+                    resolve(data);
+                }
+            }
+
+            // Queue request
+            this._addToQueue(what, onProcessed)
+            .catch(err => {
+                // Failed to queue
+                reject(new Error(`Failed to add to queue: ${err.message}`));
+            })
+        })
+    }
 }
 
 module.exports = DatabaseManager;
