@@ -126,39 +126,39 @@ function setupMonitoring(config, db){
 
                 // Get HTTP data from plug
                 poll(url)
-                    .then(res => {
-                        // Get response data
-                        const {status, message} = res;
+                .catch(err => {
+                    // Failed to poll
+                    return Promise.reject(new Error(`Failed to poll: ${err.message}`))
+                })
+                .then(res => {
+                    // Get response data
+                    const {status, message} = res;
 
-                        if (status == 200){
-                            // If good, parse the HTML response
-                            return parseHtml(message).catch(err => {
-                                // Failed to parse response
-                                return Promise.reject(new Error(`Failed to parse poll results for plug ${name}: ${err.message}`))
-                            })
-                        }
-                        else{
-                            return Promise.reject(new Error(`Got non-200 status for plug ${name}: ${message}`))
-                        }
-                    })
-                    .then(result => {
-                        // Save result
-                        return db.addResult(name, result, time).catch(err => {
-                            // Failed to save
-                            return Promise.reject(new Error(`Failed to save result to database for plug ${name}: ${err.message}`))
+                    if (status == 200){
+                        // If good, parse the HTML response
+                        return parseHtml(message).catch(err => {
+                            // Failed to parse response
+                            return Promise.reject(new Error(`Failed to parse poll results: ${err.message}`))
                         })
+                    }
+                    else{
+                        return Promise.reject(new Error(`Got non-200 status: ${message}`))
+                    }
+                })
+                .then(result => {
+                    // Save result
+                    return db.addResult(name, result, time).catch(err => {
+                        // Failed to save
+                        return Promise.reject(new Error(`Failed to save result to database: ${err.message}`))
                     })
-                    .then((IDs) => {
-                        console.log('Inserted!', IDs);
-                    })
-                    .catch(err => {
-                        // Failed to poll
-                        return Promise.reject(new Error(`Failed to poll plug ${name}: ${err.message}`))
-                    })
-                    .catch(err => {
-                        // Print error message
-                        console.error(`${new Date().toLocaleString()} - Error: Failed to monitor plug ${name}: ${err.message}`);
-                    })
+                })
+                .then((IDs) => {
+                    console.log('Inserted!', IDs);
+                })
+                .catch(err => {
+                    // Print error message
+                    console.error(`${new Date().toLocaleString()} - Error: Failed to monitor plug ${name}: ${err.message}`);
+                })
             }, pollIntervalMS);
         }
 

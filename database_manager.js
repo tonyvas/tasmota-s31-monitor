@@ -301,9 +301,11 @@ class DatabaseManager{
             // What to do when request got processed
             function onProcessed(err, data){
                 if (err){
-                    reject(new Error(`Failed to add result: ${err.message}`));
+                    // Pass error along
+                    reject(err);
                 }
                 else{
+                    // Pass result along
                     resolve(data);
                 }
             }
