@@ -78,6 +78,27 @@ class WebAPI{
     _setupRouter(){
         let router = express.Router();
 
+        router.get('/plug', (req, res) => {
+            // Set headers
+            res.setHeader('Content-Type', 'application/json');
+
+            // Query database for the plugs
+            this._getPlugs()
+            .then(plugs => {
+                // Generate and send response
+                res.send(this._generateResponseBody({ plugs }))
+            }).catch(err => {
+                console.error(`Error: Error: Failed to respond with plugs: ${err.message}`);
+
+                // Send server error response
+                res.statusCode = 500;
+                res.send(this._generateErrorResponseBody(500, 'Server error', `Failed to get plugs`))
+            })
+            .finally(() => {
+                res.end();
+            })
+        })
+
         // GET all plug results
         router.get('/plug_results', (req, res) => {
             // Set headers
