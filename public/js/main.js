@@ -46,20 +46,29 @@ function setupHTML(name){
 
     appendElements(body, canvas)
 
+    // Return elements that have user interaction
     return {canvas, startInput, endInput, updateInput};
 }
 
 function datetimeValueToDate(value){
+    // Split the date and time
     let bigParts = value.split('T');
+
+    // Get date parts
     let [year, month, day] = bigParts[0].split('-')
+
+    // Get time parts
     let [hour, min, sec] = bigParts[1].split(':')
 
+    // Build date, seconds may not be there
     return new Date(year, month, day, hour, min, sec ? sec : null);
 }
 
 function dateToDatetimeValue(date){
+    // Prepend 0 to make number 2 digits
     let pad = n => n.toString().length < 2 ? `0${n}` : n;
 
+    // Get individual date parts
     let year = date.getFullYear()
     let month = pad(date.getMonth())
     let day = pad(date.getDate())
@@ -67,17 +76,22 @@ function dateToDatetimeValue(date){
     let minute = pad(date.getMinutes())
     let second = pad(date.getSeconds())
 
+    // Format string
     return `${year}-${month}-${day}T${hour}:${minute}:${second}`
 }
 
 function updateGraph(id, graph, startDate, endDate){
     return new Promise((resolve, reject) => {
+        // Get UTC timestamps
         let start = startDate.getTime();
         let end = endDate.getTime();
 
+        // Request data from API
         fetch(`/api/plug_results/${id}?start=${start}&end=${end}`)
+        // Parse JSON
         .then(res => res.json())
         .then(res => {
+            // Update graph
             graph.update(res.data.results, start, end);
             resolve();
         })
@@ -129,14 +143,17 @@ function setupGraph(id, canvas, startInput, endInput, updateInput){
 }
 
 function setup(id, name){
+    // Setup HTML elements, and get the ones with user interaction
     let {canvas, startInput, endInput, updateInput} = setupHTML(name)
 
+    // Setup graph with user interation
     setupGraph(id, canvas, startInput, endInput, updateInput)
 }
 
 document.body.onload = () => {
     // Fetch plugs
     fetch('/api/plug').then(res => res.json()).then(res => {
+        // Setup each plug
         for (let {plug_id, plug_name} of res.data.plugs){
             setup(plug_id, plug_name);
         }
