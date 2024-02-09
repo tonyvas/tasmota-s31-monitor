@@ -6,6 +6,7 @@
   "scripts": {
     "setup": "npm i && node setup.js",
     "dev": "nodemon app.js",
+    "prod": "node app.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
