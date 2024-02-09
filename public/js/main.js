@@ -61,7 +61,7 @@ function datetimeValueToDate(value){
     let [hour, min, sec] = bigParts[1].split(':')
 
     // Build date, seconds may not be there
-    return new Date(year, month, day, hour, min, sec ? sec : null);
+    return new Date(year, month - 1, day, hour, min, sec ? sec : null);
 }
 
 function dateToDatetimeValue(date){
@@ -70,8 +70,8 @@ function dateToDatetimeValue(date){
 
     // Get individual date parts
     let year = date.getFullYear()
-    let month = pad(date.getMonth())
-    let day = pad(date.getDate())
+    let month = pad(date.getMonth() + 1)    // Month is 0 based
+    let day = pad(date.getDate())           // But date is 1 based?
     let hour = pad(date.getHours())
     let minute = pad(date.getMinutes())
     let second = pad(date.getSeconds())
