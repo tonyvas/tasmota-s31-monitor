@@ -315,6 +315,87 @@ class DatabaseManager{
         })
     }
 
+    _averagePlugResults(durationMS){
+        return new Promise((resolve, reject) => {
+            // Template to select everything for a plug by id between 2 timestamps
+            const SELECT_FIELDS = [
+                'plug_id',
+                'avg(voltage) "voltage"',
+                'avg(current) "current"',
+                'avg(active_power) "active_power"',
+                'avg(apparent_power) "apparent_power"',
+                'avg(reactive_power) "reactive_power"',
+                'avg(power_factor) "power_factor"'
+            ]
+            const SELECT_TEMPLATE = `SELECT ${SELECT_FIELDS.join(', ')} FROM result WHERE timestamp_ms BETWEEN ? AND ? GROUP BY plug_id;`
+
+            const INSERT_FIELDS = [
+                'plug_id',
+                'timestamp_start_ms',
+                'duration_ms',
+                'voltage',
+                'current',
+                'active_power',
+                'apparent_power',
+                'reactive_power',
+                'power_factor'
+            ]
+            const INSERT_VALUES = INSERT_FIELDS.map(item => '?');
+            const INSERT_TEMPLATE = `INSERT INTO average (${INSERT_FIELDS.join(',')}) VALUES (${INSERT_VALUES.join(',')}) RETURNING average_id;`;
+
+            // Current timestamp
+            let now = Date.now();
+
+            // Start of duration group
+            let startMS = now - (now % durationMS)
+
+            // End of duration group
+            let endMS = startMS + durationMS
+
+            // Run query
+            this._query(SELECT_TEMPLATE, [startMS, endMS])
+            .then((res) => {
+                let promises = [];
+                let averageIDs = [];
+
+                for (let row of res){
+                    let values = [
+                        row['plug_id'],         // plug_id
+                        startMS,                // timestamp_start_ms
+                        durationMS,             // duration_ms
+                        row['voltage'],         // voltage
+                        row['current'],         // current
+                        row['active_power'],    // active_power
+                        row['apparent_power'],  // apparent_power
+                        row['reactive_power'],  // reactive_power
+                        row['power_factor'],    // power_factor
+                    ]
+
+                    // let promise = this._query(INSERT_TEMPLATE, values).then(avgerageID => {
+                    //     averageIDs.push(avgerageID)
+                    // })
+
+                    // promises.push(promise)
+                }
+
+                return Promise.all(promises)
+                .then(() => {
+                    return Promise.resolve(averageIDs);
+                })
+                .catch(err => {
+                    return Promise.reject();
+                })
+            })
+            .then(() => {
+                resolve()
+            })
+            .catch(err => {
+                // Failed to select
+                reject(new Error(`Failed to select results: ${err.message}`))
+            })
+        })
+    }
+
     // Public facing method to add a result to the database
     // Queues a request to insert the result, and waits until it gets processed
     // Takes the plug name, result object and optionally a timestamp
@@ -382,6 +463,23 @@ class DatabaseManager{
 
                 // Get the results
                 return this._getPlugResults(plug_id, start, end);
+            }
+
+            // Queue request
+            this._addToQueue(what, resolve, reject)
+            .catch(err => {
+                // Failed to queue
+                reject(new Error(`Failed to add to queue: ${err.message}`));
+            })
+        })
+    }
+
+    averagePlugResults(durationMS){
+        return new Promise((resolve, reject) => {
+            // What to do when it is time to process request
+            function what(){
+                // Get plugs
+                return this._averagePlugResults(durationMS);
             }
 
             // Queue request

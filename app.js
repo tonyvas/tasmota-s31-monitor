@@ -38,4 +38,11 @@ plugMonitor.start()
 })
 .catch(err => {
     console.error(`Error: Failed to start: ${err.message}`);
+
+    // Stop monitor
+    plugMonitor.stop().then(() => {
+        console.log('Stopped!');
+    }).catch(err => {
+        console.error(`Error: Failed to stop: ${err.message}`);
+    })
 })

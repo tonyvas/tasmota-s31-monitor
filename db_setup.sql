@@ -26,6 +26,28 @@ CREATE TABLE IF NOT EXISTS result(
     FOREIGN KEY (plug_id) REFERENCES plug (plug_id)
 );
 
+CREATE TABLE IF NOT EXISTS average(
+    avgerage_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    plug_id             INTEGER NOT NULL,
+
+    -- Timestamp in MS for start average group
+    timestamp_start_ms  TIMESTAMP NOT NULL,
+
+    -- Duration of group
+    duration_ms         TIMESTAMP NOT NULL,
+
+    -- Average result values from polls
+    voltage             REAL NOT NULL,
+    current             REAL NOT NULL,
+    active_power        REAL NOT NULL,
+    apparent_power      REAL NOT NULL,
+    reactive_power      REAL NOT NULL,
+    power_factor        REAL NOT NULL,
+
+    -- Reference plug
+    FOREIGN KEY (plug_id) REFERENCES plug (plug_id)
+);
+
 CREATE VIEW IF NOT EXISTS v_results AS
     SELECT
         p.plug_name,
@@ -36,3 +58,14 @@ CREATE VIEW IF NOT EXISTS v_results AS
     WHERE
         r.plug_id = p.plug_id
     ORDER BY r.timestamp_ms;
+
+CREATE VIEW IF NOT EXISTS v_averages AS
+    SELECT
+        p.plug_name,
+        a.*
+    FROM
+        average a,
+        plug p
+    WHERE
+        a.plug_id = p.plug_id
+    ORDER BY a.timestamp_start_ms;

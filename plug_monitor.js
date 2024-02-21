@@ -178,6 +178,32 @@ class PlugMonitor{
         })
     }
 
+    _setupAveraging(config){
+        return new Promise((resolve, reject) => {
+            // Split out config values
+            const durationsMS = config['average_durations_ms'];
+
+            for (let durationMS of durationsMS){
+                let handle = setInterval(() => {
+                    this._database.averagePlugResults(durationMS)
+                    .then(() => {
+                        // console.log('averaged!');
+                    })
+                    .catch(err => {
+                        // Print error message
+                        console.error(`${new Date().toLocaleString()} - Error: Failed to average results: ${err.message}`);
+                    })
+                }, 2000);
+
+                // Save interval handle
+                this._handles.push(handle);
+            }
+
+            // Resolve when done
+            resolve()
+        })
+    }
+
     // Main starting function
     // Reads config and starts monitoring
     // Takes an instance of the database manager
@@ -188,11 +214,26 @@ class PlugMonitor{
             if (!this._isRunning){
                 // Read the config
                 this._getConfig()
+                .catch(err => {
+                    return Promise.reject(new Error(`Failed to get config: ${err.message}`))
+                })
                 .then(config => {
                     // Setup monitoring loop
-                    return this._setupMonitoring(config).catch(err => {
+                    return this._setupMonitoring(config)
+                    .then(() => {
+                        // Pass config to next then
+                        return config
+                    })
+                    .catch(err => {
                         // Failed to setup
                         return Promise.reject(new Error(`Failed to start monitoring: ${err.message}`));
+                    })
+                })
+                .then(config => {
+                    // Setup avergaing
+                    return this._setupAveraging(config).catch(err => {
+                        // Failed to setup
+                        return Promise.reject(new Error(`Failed to start averaging: ${err.message}`));
                     })
                 })
                 .then(() => {
@@ -201,7 +242,7 @@ class PlugMonitor{
                     resolve();
                 })
                 .catch(err => {
-                    reject(new Error(`Failed to get config: ${err.message}`))
+                    reject(new Error(`Failed to start: ${err.message}`))
                 })
             }
             else{
