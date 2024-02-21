@@ -161,7 +161,7 @@ class PlugMonitor{
                         })
                     })
                     .then((IDs) => {
-                        // console.log('Inserted!', IDs);
+                        console.log('Inserted!', IDs);
                     })
                     .catch(err => {
                         // Print error message

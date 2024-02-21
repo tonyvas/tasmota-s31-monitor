@@ -30,11 +30,11 @@ class DatabaseManager{
                 // Remove request from beginning of queue
                 let request = this._queue.splice(0, 1)[0];
                 
-                // Get callbacks from request
-                let {what, cResolve, cReject} = request;
+                // Get items from request
+                let {template, params, cResolve, cReject} = request;
 
                 // Process queued requests
-                await what().then(cResolve).catch(cReject);
+                await this._query(template, params).then(cResolve).catch(cReject)
             }
 
             // Finished processing
@@ -42,20 +42,16 @@ class DatabaseManager{
         }
     }
 
-    // Add a queue request to the queue
-    // Takes a main action callback, and a the resolve and reject callbacks for when what is complete
-    // Resolves when request was added
-    // Rejects if failed to queue request
-    _addToQueue(what, cResolve, cReject){
+    _queueQuery(template, params, cResolve, cReject){
         return new Promise((resolve, reject) => {
+            console.log('Queue', this._queue.length + 1, QUEUE_MAX_SIZE);
             if (this._queue.length >= QUEUE_MAX_SIZE){
                 // Make sure queue doesn't get too full
                 reject(new Error(`Reached maximum queue size of ${QUEUE_MAX_SIZE}!`));
             }
             else{
-                this._queue.push({
-                    // Bind callbacks to this instance
-                    what: what.bind(this), cResolve, cReject });
+                // Push query to queue
+                this._queue.push({ template, params, cResolve, cReject });
         
                 // Resume processing
                 this._processQueue();
@@ -90,14 +86,16 @@ class DatabaseManager{
     // Rejects if not
     _execSql(db, template, values){
         return new Promise((resolve, reject) => {
-            db.all(template, values, (err, res) => {
-                if (err){
-                    reject(err);
-                }
-                else{
-                    resolve(res);
-                }
-            })
+            // setTimeout(() => {
+                db.all(template, values, (err, res) => {
+                    if (err){
+                        reject(err);
+                    }
+                    else{
+                        resolve(res);
+                    }
+                })
+            // }, 1000);
         })
     }
 
@@ -248,8 +246,11 @@ class DatabaseManager{
     // Converts the plug name into its ID, and inserts result
     // Resolves the plug and result IDs if successful
     // Rejects if not
-    _addResult(plugName, result, timestamp){
+    addResult(plugName, result, timestamp = null){
         return new Promise((resolve, reject) => {
+            // Assume current timestamp unless specified
+            timestamp = timestamp || Date.now();
+
             // Get the Plug ID
             this._getOrInsertPlug(plugName)
             .catch(err => {
@@ -276,7 +277,7 @@ class DatabaseManager{
     // Get all plugs
     // Takes nothing
     // Resolves array of plug records
-    _getPlugs(){
+    getPlugs(){
         return new Promise((resolve, reject) => {
             // Template to select everything for a plug by id between 2 timestamps
             const TEMPLATE = 'SELECT * FROM plug;'
@@ -297,10 +298,18 @@ class DatabaseManager{
     // Get results for a plug
     // Takes the plug ID, a start and end timestamp
     // Resolves array of results records
-    _getPlugResults(plug_id, start, end){
+    getPlugResults(plug_id, start = null, end = null){
         return new Promise((resolve, reject) => {
+            // Max signed 64-bit number
+            const MAX_TIMESTAMP = 2**63 - 1;
+            const MIN_TIMESTAMP = 0;
+
             // Template to select everything for a plug by id between 2 timestamps
             const TEMPLATE = 'SELECT * FROM result WHERE plug_id = ? AND timestamp_ms BETWEEN ? AND ?;'
+
+            // Assume default values if not specified
+            start = start || MIN_TIMESTAMP;
+            end = end || MAX_TIMESTAMP;
 
             // Run query
             this._query(TEMPLATE, [plug_id, start, end])
@@ -315,7 +324,7 @@ class DatabaseManager{
         })
     }
 
-    _averagePlugResults(durationMS){
+    averagePlugResults(durationMS){
         return new Promise((resolve, reject) => {
             // Template to select everything for a plug by id between 2 timestamps
             const SELECT_FIELDS = [
@@ -392,101 +401,6 @@ class DatabaseManager{
             .catch(err => {
                 // Failed to select
                 reject(new Error(`Failed to select results: ${err.message}`))
-            })
-        })
-    }
-
-    // Public facing method to add a result to the database
-    // Queues a request to insert the result, and waits until it gets processed
-    // Takes the plug name, result object and optionally a timestamp
-    // Resolves with the plug and result IDs if successful
-    // Rejects if not
-    addResult(plugName, result, timestamp = null){
-        return new Promise((resolve, reject) => {
-            // What to do when it is time to process request
-            function what(){
-                if (!timestamp){
-                    // Use current time if no timestamp
-                    timestamp = Date.now();
-                }
-
-                // Add the result
-                return this._addResult(plugName, result, timestamp);
-            }
-
-            // Queue request
-            this._addToQueue(what, resolve, reject)
-            .catch(err => {
-                // Failed to queue
-                reject(new Error(`Failed to add to queue: ${err.message}`));
-            })
-        })
-    }
-
-    // Public facing method to get plugs
-    // Takes nothing
-    // Resolves array of plugs
-    getPlugs(){
-        return new Promise((resolve, reject) => {
-            // What to do when it is time to process request
-            function what(){
-                // Get plugs
-                return this._getPlugs();
-            }
-
-            // Queue request
-            this._addToQueue(what, resolve, reject)
-            .catch(err => {
-                // Failed to queue
-                reject(new Error(`Failed to add to queue: ${err.message}`));
-            })
-        })
-    }
-
-    // Public facing method to get results for a plug
-    // Takes a plug ID, and optionally a start and end timestamp
-    getPlugResults(plug_id, start = null, end = null){
-        return new Promise((resolve, reject) => {
-            // What to do when it is time to process request
-            function what(){
-                // Max signed 64-bit number
-                const MAX_TIMESTAMP = 2**63 - 1;
-                const MIN_TIMESTAMP = 0;
-
-                if (!start){
-                    start = MIN_TIMESTAMP;
-                }
-
-                if (!end){
-                    end = MAX_TIMESTAMP;
-                }
-
-                // Get the results
-                return this._getPlugResults(plug_id, start, end);
-            }
-
-            // Queue request
-            this._addToQueue(what, resolve, reject)
-            .catch(err => {
-                // Failed to queue
-                reject(new Error(`Failed to add to queue: ${err.message}`));
-            })
-        })
-    }
-
-    averagePlugResults(durationMS){
-        return new Promise((resolve, reject) => {
-            // What to do when it is time to process request
-            function what(){
-                // Get plugs
-                return this._averagePlugResults(durationMS);
-            }
-
-            // Queue request
-            this._addToQueue(what, resolve, reject)
-            .catch(err => {
-                // Failed to queue
-                reject(new Error(`Failed to add to queue: ${err.message}`));
             })
         })
     }
