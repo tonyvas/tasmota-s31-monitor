@@ -331,7 +331,9 @@ class DatabaseManager{
 
 
 
-
+    // Calculate the average values of results between 2 timestamps
+    // Takes a start and end timestamp in MS
+    // Resolves database row for each plug containing an average of all results in time range
     _calculateResultAverages(start, end){
         return new Promise((resolve, reject) => {
             // Template to select everything for a plug by id between 2 timestamps
@@ -344,14 +346,18 @@ class DatabaseManager{
                 'avg(reactive_power) "reactive_power"',
                 'avg(power_factor) "power_factor"'
             ]
+
+            // Generate template
             const SELECT_TEMPLATE = `SELECT ${SELECT_FIELDS.join(', ')} FROM result WHERE timestamp_ms BETWEEN ? AND ? GROUP BY plug_id;`
 
+            // Run query
             this._query(SELECT_TEMPLATE, [start, end])
             .catch(err => {
                 // Failed to select
                 return Promise.reject(new Error(`Failed to select results: ${err.message}`))
             })
             .then((valueRows) => {
+                // Resolve rows
                 resolve(valueRows);
             })
             .catch(err => {
@@ -360,25 +366,36 @@ class DatabaseManager{
         })
     }
 
+    // Get current average ID for a plug
+    // Takes the plug ID, start timestamp and duration of average
+    // Resolves the average ID if it exists, or null if it doesn't
     _getCurrentAverageIDOfPlug(plugID, startMS, durationMS){
         return new Promise((resolve, reject) => {
+            // Select template
             const TEMPLATE = 'SELECT average_id FROM average WHERE plug_id = ? AND timestamp_start_ms = ? AND duration_ms = ?;';
 
+            // Run query
             this._query(TEMPLATE, [plugID, startMS, durationMS])
             .catch(err => {
+                // Failed to select
                 return Promise.reject(new Error(`Failed to select averages: ${err.message}`))
             })
             .then(res => {
+                // Check length of results
                 switch (res.length) {
                     case 0:
+                        // If no average row, return null
                         return null
                     case 1:
+                        // If there is a row, return its ID
                         return res[0]['average_id'];
                     default:
+                        // Should not be multiple average rows for same time range
                         return Promise.reject(new Error(`Multiple averages exist for current period!`))
                 }
             })
             .then(averageID => {
+                // Resolve ID
                 resolve(averageID)
             })
             .catch(err => {
@@ -387,8 +404,12 @@ class DatabaseManager{
         })
     }
 
+    // Insert an average row
+    // Takes the plug ID, start timestamp of average period, duration of period, and the averaged result values
+    // Resolves the average ID
     _insertResultAveragesOfPlug(plugID, startMS, durationMS, results){
         return new Promise((resolve, reject) => {
+            // Fields to insert, in order
             const INSERT_FIELDS = [
                 'plug_id',
                 'timestamp_start_ms',
@@ -400,9 +421,13 @@ class DatabaseManager{
                 'reactive_power',
                 'power_factor'
             ]
+            // Array of ? for placeholders
             const INSERT_VALUES = INSERT_FIELDS.map(item => '?');
+
+            // Generate insert template
             const INSERT_TEMPLATE = `INSERT INTO average (${INSERT_FIELDS.join(',')}) VALUES (${INSERT_VALUES.join(',')}) RETURNING average_id, plug_id;`;
 
+            // Array of placeholder values
             let values = [
                 plugID,                     // plug_id
                 startMS,                    // timestamp_start_ms
@@ -415,8 +440,10 @@ class DatabaseManager{
                 results['power_factor'],    // power_factor
             ]
 
+            // Run query
             this._query(INSERT_TEMPLATE, values)
             .then(IDs => {
+                // Resolve IDs
                 resolve(IDs);
             })
             .catch(err => {
@@ -425,8 +452,12 @@ class DatabaseManager{
         })
     }
 
+    // Update an average row
+    // Takes the plug ID, average row ID and new averaged result values
+    // Resolves nothing
     _updateResultAveragesOfPlug(plugID, averageID, results){
         return new Promise((resolve, reject) => {
+            // Fields to update with their placeholder, in order
             const UPDATE_FIELDS = [
                 'voltage = ?',
                 'current = ?',
@@ -436,8 +467,10 @@ class DatabaseManager{
                 'power_factor = ?'
             ]
             
+            // Generate template
             const UPDATE_TEMPLATE = `UPDATE average SET ${UPDATE_FIELDS.join(', ')} WHERE plug_id = ? AND average_id = ?;`;
 
+            // Value of placeholders
             let values = [
                 results['voltage'],         // voltage
                 results['current'],         // current
@@ -449,6 +482,7 @@ class DatabaseManager{
                 averageID                   // average_id
             ]
 
+            // Run query
             this._query(UPDATE_TEMPLATE, values)
             .then(IDs => {
                 resolve(IDs);
@@ -459,6 +493,9 @@ class DatabaseManager{
         })
     }
 
+    // Calculate and save the average of a group of results for each plug
+    // Takes the average group duration
+    // Resolves when done
     averagePlugResults(durationMS){
         return new Promise((resolve, reject) => {
             // Current timestamp
@@ -470,7 +507,7 @@ class DatabaseManager{
             // End of duration group
             let endMS = startMS + durationMS
 
-            // Run query
+            // Calculate averages of all plugs
             this._calculateResultAverages(startMS, endMS)
             .catch(err => {
                 return Promise.reject(`Failed to calculate result averages: ${err.message}`)
@@ -478,18 +515,23 @@ class DatabaseManager{
             .then(resultsOfPlugs => {
                 let promises = [];
 
+                // Iterate over every plug result
                 for (let results of resultsOfPlugs){
+                    // Get the plug ID
                     let plugID = results['plug_id'];
 
+                    // Try getting current average ID
                     let promise = this._getCurrentAverageIDOfPlug(plugID, startMS, durationMS)
                     .then(averageID => {
                         if (averageID){
+                            // If there exists an average row, update it
                             return this._updateResultAveragesOfPlug(plugID, averageID, results)
                             .catch(err => {
                                 return Promise.reject(new Error(`Failed to update average: ${err.message}`))
                             })
                         }
                         else{
+                            // If there is no average row, create it
                             return this._insertResultAveragesOfPlug(plugID, startMS, durationMS, results)
                             .catch(err => {
                                 return Promise.reject(new Error(`Failed to insert average: ${err.message}`))
@@ -497,12 +539,15 @@ class DatabaseManager{
                         }
                     })
 
+                    // Save promise
                     promises.push(promise);
                 }
 
+                // Wait for all promises
                 return Promise.all(promises)
             })
             .then(() => {
+                // Resolve when done
                 resolve();
             })
             .catch(err => {
