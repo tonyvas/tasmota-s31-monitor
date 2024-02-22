@@ -1,7 +1,5 @@
 const sqlite3 = require('sqlite3');
 
-const QUEUE_MAX_SIZE = 32;
-
 class DatabaseManager{
     constructor(databasePath){
         // Filepath to database
@@ -17,49 +15,6 @@ class DatabaseManager{
         this._queue = [];
         // Bool to prevent multiple simultaneous processes
         this._isProcessingQueue = false;
-    }
-
-    // Process requests in the queue array
-    async _processQueue(){
-        // If not processing, start doing so
-        if (!this._isProcessingQueue){
-            this._isProcessingQueue = true;
-            
-            // While queue is not empty
-            while (this._queue.length > 0){
-                // Remove request from beginning of queue
-                let request = this._queue.splice(0, 1)[0];
-                
-                // Get items from request
-                let {template, params, cResolve, cReject} = request;
-
-                // Process queued requests
-                await this._query(template, params).then(cResolve).catch(cReject)
-            }
-
-            // Finished processing
-            this._isProcessingQueue = false;
-        }
-    }
-
-    _queueQuery(template, params, cResolve, cReject){
-        return new Promise((resolve, reject) => {
-            console.log('Queue', this._queue.length + 1, QUEUE_MAX_SIZE);
-            if (this._queue.length >= QUEUE_MAX_SIZE){
-                // Make sure queue doesn't get too full
-                reject(new Error(`Reached maximum queue size of ${QUEUE_MAX_SIZE}!`));
-            }
-            else{
-                // Push query to queue
-                this._queue.push({ template, params, cResolve, cReject });
-        
-                // Resume processing
-                this._processQueue();
-
-                // Resolve if setup didn't fail
-                resolve();
-            }
-        })
     }
 
     // Opens a handle to the database
@@ -241,96 +196,6 @@ class DatabaseManager{
         })
     }
 
-    // Add a result to the database
-    // Takes the plug name, result object and a timestamp
-    // Converts the plug name into its ID, and inserts result
-    // Resolves the plug and result IDs if successful
-    // Rejects if not
-    addResult(plugName, result, timestamp = null){
-        return new Promise((resolve, reject) => {
-            // Assume current timestamp unless specified
-            timestamp = timestamp || Date.now();
-
-            // Get the Plug ID
-            this._getOrInsertPlug(plugName)
-            .catch(err => {
-                return Promise.reject(new Error(`Failed to get plug ID: ${err.message}`));
-            })
-            .then(plug_id => {
-                // Insert into result table
-                return this._insertResult(plug_id, timestamp, result)
-                .then(result_id => {
-                    // Resolve with IDs when done
-                    resolve({plug_id, result_id});
-                })
-                .catch(err => {
-                    // Failed to insert
-                    return Promise.reject(new Error(`Failed to insert result: ${err.message}`));
-                })
-            })
-            .catch(err => {
-                reject(new Error(`Failed to add result: ${err.message}`));
-            })
-        })
-    }
-
-    // Get all plugs
-    // Takes nothing
-    // Resolves array of plug records
-    getPlugs(){
-        return new Promise((resolve, reject) => {
-            // Template to select everything for a plug by id between 2 timestamps
-            const TEMPLATE = 'SELECT * FROM plug;'
-
-            // Run query
-            this._query(TEMPLATE)
-            .then((res) => {
-                // Resolve results
-                resolve(res)
-            })
-            .catch(err => {
-                // Failed to select
-                reject(new Error(`Failed to select plugs: ${err.message}`))
-            })
-        })
-    }
-
-    // Get results for a plug
-    // Takes the plug ID, a start and end timestamp
-    // Resolves array of results records
-    getPlugResults(plug_id, start = null, end = null){
-        return new Promise((resolve, reject) => {
-            // Max signed 64-bit number
-            const MAX_TIMESTAMP = 2**63 - 1;
-            const MIN_TIMESTAMP = 0;
-
-            // Template to select everything for a plug by id between 2 timestamps
-            const TEMPLATE = 'SELECT * FROM result WHERE plug_id = ? AND timestamp_ms BETWEEN ? AND ?;'
-
-            // Assume default values if not specified
-            start = start || MIN_TIMESTAMP;
-            end = end || MAX_TIMESTAMP;
-
-            // Run query
-            this._query(TEMPLATE, [plug_id, start, end])
-            .then((res) => {
-                // Resolve results
-                resolve(res)
-            })
-            .catch(err => {
-                // Failed to select
-                reject(new Error(`Failed to select results: ${err.message}`))
-            })
-        })
-    }
-
-
-
-
-
-
-
-
     // Calculate the average values of results between 2 timestamps
     // Takes a start and end timestamp in MS
     // Resolves database row for each plug containing an average of all results in time range
@@ -489,6 +354,89 @@ class DatabaseManager{
             })
             .catch(err => {
                 reject(new Error(`Failed to update average: ${err.message}`));
+            })
+        })
+    }
+
+    // Add a result to the database
+    // Takes the plug name, result object and a timestamp
+    // Converts the plug name into its ID, and inserts result
+    // Resolves the plug and result IDs if successful
+    // Rejects if not
+    addResult(plugName, result, timestamp = null){
+        return new Promise((resolve, reject) => {
+            // Assume current timestamp unless specified
+            timestamp = timestamp || Date.now();
+
+            // Get the Plug ID
+            this._getOrInsertPlug(plugName)
+            .catch(err => {
+                return Promise.reject(new Error(`Failed to get plug ID: ${err.message}`));
+            })
+            .then(plug_id => {
+                // Insert into result table
+                return this._insertResult(plug_id, timestamp, result)
+                .then(result_id => {
+                    // Resolve with IDs when done
+                    resolve({plug_id, result_id});
+                })
+                .catch(err => {
+                    // Failed to insert
+                    return Promise.reject(new Error(`Failed to insert result: ${err.message}`));
+                })
+            })
+            .catch(err => {
+                reject(new Error(`Failed to add result: ${err.message}`));
+            })
+        })
+    }
+
+    // Get all plugs
+    // Takes nothing
+    // Resolves array of plug records
+    getPlugs(){
+        return new Promise((resolve, reject) => {
+            // Template to select everything for a plug by id between 2 timestamps
+            const TEMPLATE = 'SELECT * FROM plug;'
+
+            // Run query
+            this._query(TEMPLATE)
+            .then((res) => {
+                // Resolve results
+                resolve(res)
+            })
+            .catch(err => {
+                // Failed to select
+                reject(new Error(`Failed to select plugs: ${err.message}`))
+            })
+        })
+    }
+
+    // Get results for a plug
+    // Takes the plug ID, a start and end timestamp
+    // Resolves array of results records
+    getPlugResults(plug_id, start = null, end = null){
+        return new Promise((resolve, reject) => {
+            // Max signed 64-bit number
+            const MAX_TIMESTAMP = 2**63 - 1;
+            const MIN_TIMESTAMP = 0;
+
+            // Template to select everything for a plug by id between 2 timestamps
+            const TEMPLATE = 'SELECT * FROM result WHERE plug_id = ? AND timestamp_ms BETWEEN ? AND ?;'
+
+            // Assume default values if not specified
+            start = start || MIN_TIMESTAMP;
+            end = end || MAX_TIMESTAMP;
+
+            // Run query
+            this._query(TEMPLATE, [plug_id, start, end])
+            .then((res) => {
+                // Resolve results
+                resolve(res)
+            })
+            .catch(err => {
+                // Failed to select
+                reject(new Error(`Failed to select results: ${err.message}`))
             })
         })
     }
