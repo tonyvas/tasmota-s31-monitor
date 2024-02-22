@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS result(
 );
 
 CREATE TABLE IF NOT EXISTS average(
-    avgerage_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    average_id         INTEGER PRIMARY KEY AUTOINCREMENT,
     plug_id             INTEGER NOT NULL,
 
     -- Timestamp in MS for start average group

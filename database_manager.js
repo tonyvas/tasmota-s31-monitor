@@ -324,7 +324,15 @@ class DatabaseManager{
         })
     }
 
-    averagePlugResults(durationMS){
+
+
+
+
+
+
+
+
+    _calculateResultAverages(start, end){
         return new Promise((resolve, reject) => {
             // Template to select everything for a plug by id between 2 timestamps
             const SELECT_FIELDS = [
@@ -338,6 +346,49 @@ class DatabaseManager{
             ]
             const SELECT_TEMPLATE = `SELECT ${SELECT_FIELDS.join(', ')} FROM result WHERE timestamp_ms BETWEEN ? AND ? GROUP BY plug_id;`
 
+            this._query(SELECT_TEMPLATE, [start, end])
+            .catch(err => {
+                // Failed to select
+                return Promise.reject(new Error(`Failed to select results: ${err.message}`))
+            })
+            .then((valueRows) => {
+                resolve(valueRows);
+            })
+            .catch(err => {
+                reject(new Error(`Failed to calculate result averages: ${err.message}`))
+            })
+        })
+    }
+
+    _getCurrentAverageIDOfPlug(plugID, startMS, durationMS){
+        return new Promise((resolve, reject) => {
+            const TEMPLATE = 'SELECT average_id FROM average WHERE plug_id = ? AND timestamp_start_ms = ? AND duration_ms = ?;';
+
+            this._query(TEMPLATE, [plugID, startMS, durationMS])
+            .catch(err => {
+                return Promise.reject(new Error(`Failed to select averages: ${err.message}`))
+            })
+            .then(res => {
+                switch (res.length) {
+                    case 0:
+                        return null
+                    case 1:
+                        return res[0]['average_id'];
+                    default:
+                        return Promise.reject(new Error(`Multiple averages exist for current period!`))
+                }
+            })
+            .then(averageID => {
+                resolve(averageID)
+            })
+            .catch(err => {
+                reject(new Error(`Failed to get current averages: ${err.message}`));
+            })
+        })
+    }
+
+    _insertResultAveragesOfPlug(plugID, startMS, durationMS, results){
+        return new Promise((resolve, reject) => {
             const INSERT_FIELDS = [
                 'plug_id',
                 'timestamp_start_ms',
@@ -350,8 +401,66 @@ class DatabaseManager{
                 'power_factor'
             ]
             const INSERT_VALUES = INSERT_FIELDS.map(item => '?');
-            const INSERT_TEMPLATE = `INSERT INTO average (${INSERT_FIELDS.join(',')}) VALUES (${INSERT_VALUES.join(',')}) RETURNING average_id;`;
+            const INSERT_TEMPLATE = `INSERT INTO average (${INSERT_FIELDS.join(',')}) VALUES (${INSERT_VALUES.join(',')}) RETURNING average_id, plug_id;`;
 
+            let values = [
+                plugID,                     // plug_id
+                startMS,                    // timestamp_start_ms
+                durationMS,                 // duration_ms
+                results['voltage'],         // voltage
+                results['current'],         // current
+                results['active_power'],    // active_power
+                results['apparent_power'],  // apparent_power
+                results['reactive_power'],  // reactive_power
+                results['power_factor'],    // power_factor
+            ]
+
+            this._query(INSERT_TEMPLATE, values)
+            .then(IDs => {
+                resolve(IDs);
+            })
+            .catch(err => {
+                reject(new Error(`Failed to insert average: ${err.message}`));
+            })
+        })
+    }
+
+    _updateResultAveragesOfPlug(plugID, averageID, results){
+        return new Promise((resolve, reject) => {
+            const UPDATE_FIELDS = [
+                'voltage = ?',
+                'current = ?',
+                'active_power = ?',
+                'apparent_power = ?',
+                'reactive_power = ?',
+                'power_factor = ?'
+            ]
+            
+            const UPDATE_TEMPLATE = `UPDATE average SET ${UPDATE_FIELDS.join(', ')} WHERE plug_id = ? AND average_id = ?;`;
+
+            let values = [
+                results['voltage'],         // voltage
+                results['current'],         // current
+                results['active_power'],    // active_power
+                results['apparent_power'],  // apparent_power
+                results['reactive_power'],  // reactive_power
+                results['power_factor'],    // power_factor
+                plugID,                     // plug_id
+                averageID                   // average_id
+            ]
+
+            this._query(UPDATE_TEMPLATE, values)
+            .then(IDs => {
+                resolve(IDs);
+            })
+            .catch(err => {
+                reject(new Error(`Failed to update average: ${err.message}`));
+            })
+        })
+    }
+
+    averagePlugResults(durationMS){
+        return new Promise((resolve, reject) => {
             // Current timestamp
             let now = Date.now();
 
@@ -362,45 +471,42 @@ class DatabaseManager{
             let endMS = startMS + durationMS
 
             // Run query
-            this._query(SELECT_TEMPLATE, [startMS, endMS])
-            .then((res) => {
+            this._calculateResultAverages(startMS, endMS)
+            .catch(err => {
+                return Promise.reject(`Failed to calculate result averages: ${err.message}`)
+            })
+            .then(resultsOfPlugs => {
                 let promises = [];
-                let averageIDs = [];
 
-                for (let row of res){
-                    let values = [
-                        row['plug_id'],         // plug_id
-                        startMS,                // timestamp_start_ms
-                        durationMS,             // duration_ms
-                        row['voltage'],         // voltage
-                        row['current'],         // current
-                        row['active_power'],    // active_power
-                        row['apparent_power'],  // apparent_power
-                        row['reactive_power'],  // reactive_power
-                        row['power_factor'],    // power_factor
-                    ]
+                for (let results of resultsOfPlugs){
+                    let plugID = results['plug_id'];
 
-                    // let promise = this._query(INSERT_TEMPLATE, values).then(avgerageID => {
-                    //     averageIDs.push(avgerageID)
-                    // })
+                    let promise = this._getCurrentAverageIDOfPlug(plugID, startMS, durationMS)
+                    .then(averageID => {
+                        if (averageID){
+                            return this._updateResultAveragesOfPlug(plugID, averageID, results)
+                            .catch(err => {
+                                return Promise.reject(new Error(`Failed to update average: ${err.message}`))
+                            })
+                        }
+                        else{
+                            return this._insertResultAveragesOfPlug(plugID, startMS, durationMS, results)
+                            .catch(err => {
+                                return Promise.reject(new Error(`Failed to insert average: ${err.message}`))
+                            })
+                        }
+                    })
 
-                    // promises.push(promise)
+                    promises.push(promise);
                 }
 
                 return Promise.all(promises)
-                .then(() => {
-                    return Promise.resolve(averageIDs);
-                })
-                .catch(err => {
-                    return Promise.reject();
-                })
             })
             .then(() => {
-                resolve()
+                resolve();
             })
             .catch(err => {
-                // Failed to select
-                reject(new Error(`Failed to select results: ${err.message}`))
+                reject(new Error(`Failed to average results: ${err.message}`))
             })
         })
     }
